@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
 ![No Dependencies](https://img.shields.io/badge/依赖-零-orange.svg)
-![Tests](https://img.shields.io/badge/tests-20%20passed-brightgreen.svg)
+![Tests](https://img.shields.io/badge/tests-26%20passed-brightgreen.svg)
 
 ## 这是什么
 
@@ -67,6 +67,19 @@ flowchart TD
 1. **估值止盈**：PE 分位 >85% 或浮盈 >20% → 减 1/3；>95% 或 >30% → 再减 1/3
 2. **回撤止盈**：浮盈 >10% 后，从 20 日高点回撤 >8% → 卖出一半
 3. **移动止盈**：浮盈 >15% 后，从历史最高点回撤 >8% → 再卖 1/3
+
+### 盘友圈公开实盘分析（社区诊断）
+
+刷盘友圈时看到别人晒的实盘帖，想知道"他是顺势还是追高、止盈还是割肉"？把帖子内容（文字或截图）喂给 AI，按 `references/community-analysis.md` 提取要素后，一条命令出**纪律一致性诊断卡**：
+
+```bash
+python scripts/fund_strategy.py peer-check --action buy --cost 1.02 --price 1.09 \
+  --pe-percentile 35 --ma250 1.05 --rsi6 28
+```
+
+输出：发帖人浮盈、当前三因子信号、一致性判定（顺势/抢跑/逆纪律）、风险标记（年线上追买/高估值/幸存者偏差）。配套**社区情绪温度计**（贪婪/中性/恐慌三档），作逆向纪律提醒。
+
+> 合规说明：支付宝无公开接口，本项目**不做自动抓取**；仅分析用户主动粘贴的公开内容，不存储他人可识别信息，不构成跟单建议。
 
 ## 快速开始
 
@@ -136,11 +149,12 @@ fund-smart-dca-monitor/
 ├── references/
 │   ├── strategy-rules.md        # 完整策略规则与口径说明
 │   ├── data-sources.md          # 数据源优先级与取数要点
-│   └── daily-report.md          # 四段式监控日报模板
+│   ├── daily-report.md          # 四段式监控日报模板
+│   └── community-analysis.md    # 盘友圈公开实盘分析框架
 ├── scripts/
-│   └── fund_strategy.py         # 信号/补仓/止盈计算器（零依赖）
+│   └── fund_strategy.py         # 信号/补仓/止盈/实盘诊断计算器（零依赖）
 ├── tests/
-│   └── test_fund_strategy.py    # 20 个单元测试（unittest，零依赖）
+│   └── test_fund_strategy.py    # 26 个单元测试（unittest，零依赖）
 ├── docs/
 │   └── promo.md                 # 盘友圈分享文案
 ├── .github/

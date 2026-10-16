@@ -3,16 +3,18 @@
 """
 fund_strategy.py — 基金智能定投信号计算器（零依赖，纯标准库）
 
-三种子命令：
+四种子命令：
   signal      买入信号 = 估值倍数 × 均线倍数 × RSI修正（封顶 2.0）
   dca         补仓档位（现价低于成本时，按浮亏深度给日均额定额的倍数）
   exit-check  三重止盈体检
+  peer-check  盘友圈公开实盘一致性分析（对照三因子信号诊断发帖操作）
 
 本工具只输出信号、档位与倍数，不给具体金额建议、不代任何操作。
 """
 import argparse
 import json
 import sys
+from argparse import Namespace
 
 CAP = 2.0
 
@@ -155,6 +157,57 @@ def cmd_exit_check(args) -> dict:
     }
 
 
+def cmd_peer_check(args) -> dict:
+    """盘友圈公开实盘一致性分析：对照三因子信号诊断发帖人的操作"""
+    if args.cost <= 0:
+        raise ValueError("cost 必须大于 0")
+
+    sig_out = cmd_signal(args)
+    gain = (args.price / args.cost - 1) * 100
+    sig = sig_out["signal"]
+    action = args.action
+    flags = []
+
+    if action == "buy":
+        if sig >= 1.0:
+            verdict = "与纪律信号一致：当前三因子信号 ≥1.0，属于顺势买入"
+        elif sig > 0:
+            verdict = "信号不足（<1.0）：发帖人抢跑，参考需谨慎"
+        else:
+            verdict = "逆纪律买入：估值档为 0 或超买封顶，不建议跟"
+        if sig_out["price_ma250_ratio"] > 1.05:
+            flags.append("年线上方追买：趋势高位，注意回撤")
+        if sig_out["valuation_multiplier"] == 0:
+            flags.append("高估值买入：PE 分位 >80%")
+    elif action == "sell":
+        if gain < 0:
+            verdict = "浮亏卖出（割肉）：注意情绪传染，非纪律行为"
+        else:
+            ex = cmd_exit_check(Namespace(pe_percentile=args.pe_percentile, gain=gain,
+                                          dd_20d=args.dd_20d, dd_high=args.dd_high))
+            if ex["take_profit_triggered"]:
+                verdict = "与止盈纪律一致：" + ex["actions"][0]
+            else:
+                verdict = "浮盈卖出但未触发止盈规则：发帖人主动减仓，非机械纪律"
+    else:
+        verdict = "观望/持仓不动：以当前信号自行复核"
+
+    if gain > 30:
+        flags.append("高浮盈晒单：幸存者偏差样本，风险常被省略")
+
+    return {
+        "command": "peer-check",
+        "peer_action": action,
+        "peer_cost": args.cost,
+        "peer_gain_pct": round(gain, 2),
+        "current_signal": sig,
+        "signal_detail": sig_out,
+        "verdict": verdict,
+        "risk_flags": flags,
+        "note": "仅基于帖子公开信息与当前行情做纪律对照，不构成跟单建议；不存储他人可识别信息",
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="fund_strategy.py",
@@ -178,6 +231,16 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--dd-20d", type=float, default=None, dest="dd_20d", help="距20日高点回撤百分比")
     e.add_argument("--dd-high", type=float, default=None, dest="dd_high", help="距历史最高点回撤百分比")
 
+    p_ = sub.add_parser("peer-check", help="盘友圈公开实盘一致性分析")
+    p_.add_argument("--action", required=True, choices=["buy", "sell", "hold"], help="发帖人操作：buy/sell/hold")
+    p_.add_argument("--cost", type=float, required=True, help="发帖人披露的成本")
+    p_.add_argument("--price", type=float, required=True, help="该标的现价")
+    p_.add_argument("--pe-percentile", type=float, required=True, help="跟踪指数 PE 近52周分位（0-100）")
+    p_.add_argument("--ma250", type=float, required=True, help="250日均线值")
+    p_.add_argument("--rsi6", type=float, required=True, help="RSI6 值")
+    p_.add_argument("--dd-20d", type=float, default=None, dest="dd_20d", help="距20日高点回撤百分比（可选）")
+    p_.add_argument("--dd-high", type=float, default=None, dest="dd_high", help="距历史最高点回撤百分比（可选）")
+
     return p
 
 
@@ -189,6 +252,8 @@ def main(argv=None) -> int:
             result = cmd_signal(args)
         elif args.command == "dca":
             result = cmd_dca(args)
+        elif args.command == "peer-check":
+            result = cmd_peer_check(args)
         else:
             result = cmd_exit_check(args)
     except ValueError as exc:

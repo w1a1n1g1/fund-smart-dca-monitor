@@ -128,5 +128,45 @@ class TestExitCheck(unittest.TestCase):
             fs.cmd_exit_check(Namespace(pe_percentile=120, gain=0, dd_20d=None, dd_high=None))
 
 
+class TestPeerCheck(unittest.TestCase):
+    def test_buy_consistent(self):
+        out = fs.cmd_peer_check(Namespace(action="buy", cost=1.02, price=1.1138,
+                                          pe_percentile=34.8, ma250=1.27, rsi6=8.7,
+                                          dd_20d=None, dd_high=None))
+        self.assertIn("一致", out["verdict"])
+        self.assertAlmostEqual(out["peer_gain_pct"], 9.2, places=1)
+
+    def test_buy_against_discipline(self):
+        out = fs.cmd_peer_check(Namespace(action="buy", cost=1.02, price=1.10,
+                                          pe_percentile=90, ma250=1.0, rsi6=50,
+                                          dd_20d=None, dd_high=None))
+        self.assertIn("逆纪律", out["verdict"])
+        self.assertTrue(any("高估值" in f for f in out["risk_flags"]))
+
+    def test_sell_take_profit_consistent(self):
+        out = fs.cmd_peer_check(Namespace(action="sell", cost=1.0, price=1.25,
+                                          pe_percentile=87, ma250=1.0, rsi6=50,
+                                          dd_20d=None, dd_high=None))
+        self.assertIn("止盈纪律一致", out["verdict"])
+
+    def test_sell_at_loss(self):
+        out = fs.cmd_peer_check(Namespace(action="sell", cost=1.2, price=1.0,
+                                          pe_percentile=40, ma250=1.0, rsi6=50,
+                                          dd_20d=None, dd_high=None))
+        self.assertIn("割肉", out["verdict"])
+
+    def test_risk_flag_high_gain(self):
+        out = fs.cmd_peer_check(Namespace(action="buy", cost=1.0, price=1.40,
+                                          pe_percentile=30, ma250=1.3, rsi6=50,
+                                          dd_20d=None, dd_high=None))
+        self.assertTrue(any("幸存者偏差" in f for f in out["risk_flags"]))
+
+    def test_invalid_cost(self):
+        with self.assertRaises(ValueError):
+            fs.cmd_peer_check(Namespace(action="buy", cost=0, price=1.0,
+                                        pe_percentile=30, ma250=1.0, rsi6=50,
+                                        dd_20d=None, dd_high=None))
+
+
 if __name__ == "__main__":
     unittest.main()
