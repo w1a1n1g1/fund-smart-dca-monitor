@@ -1,0 +1,21 @@
+# 用户私有数据 —— 绝不入库
+*持仓*
+*台账*
+portfolio*.md
+holdings*.md
+*截图*
+*.png
+*.jpg
+*.jpeg
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# IDE / 系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
