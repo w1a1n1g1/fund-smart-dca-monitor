@@ -125,5 +125,37 @@ class TestBacktest(unittest.TestCase):
         self.assertFalse(fb.rsi_confirmed([20.0, 25.0], 0, 30.0, 2))  # 样本不足不确认
 
 
+class TestExitGuard(unittest.TestCase):
+    """止盈冷却期与规则1阶段上限：防止'触发后逐日循环卖出'抽血"""
+
+    def test_exit_cooldown_spacing(self):
+        navs, pes = fb.demo_data(600)
+        res = fb.simulate(navs, [p["pe"] for p in pes])
+        idxs = [int(s["date"][1:]) for s in res["sells"]]
+        for a, b in zip(idxs, idxs[1:]):
+            self.assertGreaterEqual(b - a, 20)
+
+    def test_rule1_stage_cap_two_trims_per_episode(self):
+        # 先低估值积累（PE 30），后 PE 恒 >95：规则1 每轮最多 1a+1b 两次，之后不再触发
+        n = 400
+        navs = [{"date": "d%04d" % i, "nav": round(1.0 * (1.001 ** i), 6)} for i in range(n)]
+        pes = [30.0] * 200 + [98.0] * 200
+        res = fb.simulate(navs, pes)
+        rule1_sells = [s for s in res["sells"] if s["rule"].startswith("规则1")]
+        self.assertEqual(len(rule1_sells), 2)
+
+    def test_rule1_stage_resets_after_condition_clears(self):
+        # 平坦净值（浮盈≈0，规则2/3 永不触发，隔离规则1）：
+        # PE 30 买入 → PE 98 一轮(1a+1b) → PE 30 条件清除（阶段重置）→ PE 98 新一轮再触发
+        n = 500
+        navs = [{"date": "d%04d" % i, "nav": 1.0} for i in range(n)]
+        pes = [30.0] * 200 + [98.0] * 60 + [30.0] * 100 + [98.0] * 140
+        res = fb.simulate(navs, pes)
+        rule1_sells = [s for s in res["sells"] if s["rule"].startswith("规则1")]
+        self.assertGreaterEqual(len(rule1_sells), 3)  # 第1轮1a+1b，第2轮至少1a
+        others = [s for s in res["sells"] if not s["rule"].startswith("规则1")]
+        self.assertEqual(len(others), 0)  # 平坦净值下不应有规则2/3卖出
+
+
 if __name__ == "__main__":
     unittest.main()

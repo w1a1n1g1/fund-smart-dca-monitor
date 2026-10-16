@@ -129,7 +129,8 @@ def rsi_confirmed(rsi_list, i, threshold=30.0, confirm=0):
 
 def simulate(navs, pes=None, monthly_units=100.0, asset_type="a",
              dd_thr=8.0, trailing_thr=8.0, rsi_list=None,
-             fee_buy=0.0015, fee_sell=0.005, dca_interval=5, rsi_confirm=0):
+             fee_buy=0.0015, fee_sell=0.005, dca_interval=5, rsi_confirm=0,
+             exit_cooldown=20):
     rules = ASSET_RULES[asset_type]
     daily_budget = monthly_units / float(DAYS_PER_MONTH)
     rsi_list = rsi_list or rsi6_series([r["nav"] for r in navs])
@@ -138,6 +139,8 @@ def simulate(navs, pes=None, monthly_units=100.0, asset_type="a",
     month_key, month_spent = None, 0.0
     peak_all = None
     last_dca_idx = -10 ** 9  # 上次补仓档触发日（最小补仓间隔用）
+    last_exit_idx = -10 ** 9  # 上次止盈触发日（冷却期：防止循环触发抽血）
+    rule1_stage = 0  # 估值止盈阶段：0=未触发 1=已减1/3 2=已减2/3（条件回落重置，允许新一轮）
     value_curve, invest_curve, sells = [], [], []
     win = 0
 
@@ -182,25 +185,37 @@ def simulate(navs, pes=None, monthly_units=100.0, asset_type="a",
             if dca_hit:
                 last_dca_idx = i
 
-        # 三重止盈（机械执行，规则2优先于规则3）
+        # 三重止盈（机械执行；触发任一规则后 exit_cooldown 日内不再触发；规则1 用阶段状态机
+        # 限制每轮估值止盈最多减 2 次（1a→1b，对应"累计减仓 2/3"）——
+        # 语义对应真实体系的"分批锁利"而非逐日循环卖出）
+        can_exit = i - last_exit_idx >= exit_cooldown
         hi20 = max(r["nav"] for r in navs[max(0, i - 19):i + 1])
         peak_all = nav if peak_all is None else max(peak_all, nav)
         gain = (nav / cost_basis - 1) * 100 if cost_basis > 0 else 0.0
         action, frac = None, 0.0
-        if asset_type == "gold":
-            if ma is not None and ((nav / ma - 1) * 100 > 20 or rsi > 80):
-                action, frac = "规则1", 1 / 3
-        elif asset_type != "bond":
-            pe = pes[i] if pes else None
-            if (pe is not None and pe > rules["pe2"]) or gain > rules["gain2"]:
-                action, frac = "规则1b", 1 / 3
-            elif (pe is not None and pe > rules["pe1"]) or gain > rules["gain1"]:
-                action, frac = "规则1a", 1 / 3
-        if cost_basis > 0 and gain > 10 and (hi20 / nav - 1) * 100 > dd_thr:
-            action, frac = "规则2", 0.5
-        if cost_basis > 0 and gain > 15 and (peak_all / nav - 1) * 100 > trailing_thr:
-            action, frac = "规则3", 1 / 3
+        if can_exit and cost_basis > 0:
+            if gain > 10 and (hi20 / nav - 1) * 100 > dd_thr:
+                action, frac = "规则2", 0.5
+            if gain > 15 and (peak_all / nav - 1) * 100 > trailing_thr:
+                action, frac = "规则3", 1 / 3
+            if action is None:
+                if asset_type == "gold":
+                    if ma is not None and ((nav / ma - 1) * 100 > 20 or rsi > 80):
+                        action, frac = "规则1", 1 / 3
+                elif asset_type != "bond":
+                    pe = pes[i] if pes else None
+                    cond1 = (pe is not None and pe > rules["pe1"]) or gain > rules["gain1"]
+                    cond2 = (pe is not None and pe > rules["pe2"]) or gain > rules["gain2"]
+                    if rule1_stage and not cond1:
+                        rule1_stage = 0  # 估值条件回落，本轮估值止盈结束，允许未来新一轮
+                    if rule1_stage == 0 and cond1:
+                        action, frac = "规则1a", 1 / 3
+                        rule1_stage = 1
+                    elif rule1_stage == 1 and cond2:
+                        action, frac = "规则1b", 1 / 3
+                        rule1_stage = 2
         if action and shares > 0:
+            last_exit_idx = i
             sell_sh = shares * frac
             proceeds = sell_sh * nav * (1 - fee_sell)  # 赎回费
             cost = sell_sh * cost_basis
@@ -323,7 +338,8 @@ def main(argv=None):
         "period": {"start": navs[0]["date"], "end": navs[-1]["date"], "days": len(navs)},
         "asset_type": args.asset_type,
         "assumptions": {"fee_buy": args.fee_buy, "fee_sell": args.fee_sell,
-                        "dca_interval_days": args.dca_interval, "rsi_confirm": args.rsi_confirm},
+                        "dca_interval_days": args.dca_interval, "rsi_confirm": args.rsi_confirm,
+                        "exit_cooldown_days": 20},
         "strategy": result,
         "benchmark_uniform_dca": bench_uniform_dca(navs, args.monthly_units, args.fee_buy),
         "benchmark_lump_sum": bench_lsi(navs, args.monthly_units, args.fee_buy),
