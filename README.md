@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
 ![No Dependencies](https://img.shields.io/badge/依赖-零-orange.svg)
-![Tests](https://img.shields.io/badge/tests-45%20passed-brightgreen.svg)
+![Tests](https://img.shields.io/badge/tests-48%20passed-brightgreen.svg)
 
 ## 这是什么
 

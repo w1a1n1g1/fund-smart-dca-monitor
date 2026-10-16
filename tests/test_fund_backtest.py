@@ -105,6 +105,25 @@ class TestBacktest(unittest.TestCase):
         self.assertIsInstance(out["sharpe"], float)
         self.assertGreaterEqual(out["max_drawdown_pct"], 0)
 
+    def test_fee_reduces_return(self):
+        navs, pes = fb.demo_data()
+        no_fee = fb.simulate(navs, [r["pe"] for r in pes], fee_buy=0.0, fee_sell=0.0)["total_return_pct"]
+        with_fee = fb.simulate(navs, [r["pe"] for r in pes], fee_buy=0.02, fee_sell=0.01)["total_return_pct"]
+        self.assertGreater(no_fee, with_fee)
+
+    def test_dca_interval_limits_averaging_down(self):
+        navs = [{"date": "d%04d" % i, "nav": round(1.0 - i * 0.0005, 6)} for i in range(300)]
+        pes = [15.0] * 300  # 低估值，信号持续 >0
+        no_limit = fb.simulate(navs, pes, dca_interval=0)["invested_units"]
+        strict = fb.simulate(navs, pes, dca_interval=999)["invested_units"]
+        self.assertGreater(no_limit, strict)
+
+    def test_rsi_confirmed_logic(self):
+        self.assertTrue(fb.rsi_confirmed([20.0, 25.0], 1, 30.0, 2))
+        self.assertFalse(fb.rsi_confirmed([20.0, 35.0], 1, 30.0, 2))
+        self.assertTrue(fb.rsi_confirmed([20.0, 35.0], 0, 30.0, 0))
+        self.assertFalse(fb.rsi_confirmed([20.0, 25.0], 0, 30.0, 2))  # 样本不足不确认
+
 
 if __name__ == "__main__":
     unittest.main()

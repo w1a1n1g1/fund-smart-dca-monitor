@@ -115,10 +115,21 @@ def dca_tier(drawdown_pct):
     return 0.0
 
 
+def rsi_confirmed(rsi_list, i, threshold=30.0, confirm=0):
+    """RSI 超卖确认：confirm<=0 保持原口径（当日<阈值即触发）；
+    confirm=N 时需连续 N 日低于阈值才确认（借鉴 MACD/KDJ 钝化过滤，减少假信号）"""
+    if confirm <= 0:
+        return rsi_list[i] < threshold
+    if i < confirm - 1:
+        return False
+    return all(r < threshold for r in rsi_list[i - confirm + 1:i + 1])
+
+
 # ---------- 策略模拟 ----------
 
 def simulate(navs, pes=None, monthly_units=100.0, asset_type="a",
-             dd_thr=8.0, trailing_thr=8.0, rsi_list=None):
+             dd_thr=8.0, trailing_thr=8.0, rsi_list=None,
+             fee_buy=0.0015, fee_sell=0.005, dca_interval=5, rsi_confirm=0):
     rules = ASSET_RULES[asset_type]
     daily_budget = monthly_units / float(DAYS_PER_MONTH)
     rsi_list = rsi_list or rsi6_series([r["nav"] for r in navs])
@@ -126,6 +137,7 @@ def simulate(navs, pes=None, monthly_units=100.0, asset_type="a",
     shares = cash = invested = cost_basis = 0.0
     month_key, month_spent = None, 0.0
     peak_all = None
+    last_dca_idx = -10 ** 9  # 上次补仓档触发日（最小补仓间隔用）
     value_curve, invest_curve, sells = [], [], []
     win = 0
 
@@ -140,27 +152,35 @@ def simulate(navs, pes=None, monthly_units=100.0, asset_type="a",
         ma = sum(r["nav"] for r in navs[i + 1 - win_ma:i + 1]) / win_ma if win_ma >= 20 else None
         rsi = rsi_list[i]
 
-        # 三因子信号
+        # 三因子信号（rsi_confirm>0 时超卖加码需连续 N 日确认，减少假信号）
         if ma is not None:
             est = pe_multiplier(pes[i]) if (pes and pes[i] is not None) else 1.0
             ma_m, _ = ma_multiplier(nav, ma)
-            raw = est * ma_m * rsi_modifier(rsi)
+            oversold = rsi_confirmed(rsi_list, i, 30.0, rsi_confirm)
+            raw = est * ma_m * (1.15 if oversold else 1.0)
             sig = min(raw, CAP)
             if rsi > 80:
                 sig = min(sig, 0.5)
         else:
             sig = 0.0
 
-        # 买入：日均额 × 信号 + 补仓档（受月预算约束，分批不梭哈）
+        # 买入：日均额 × 信号 + 补仓档（受月预算约束分批；同一标的 dca_interval 日内不重复触发补仓档）
         buy_units = daily_budget * sig
-        if cost_basis > 0 and nav < cost_basis and sig > 0:
-            buy_units += daily_budget * dca_tier((cost_basis / nav - 1) * 100)
+        dca_hit = False
+        if (cost_basis > 0 and nav < cost_basis and sig > 0
+                and i - last_dca_idx >= dca_interval):
+            tier = dca_tier((cost_basis / nav - 1) * 100)
+            if tier > 0:
+                buy_units += daily_budget * tier
+                dca_hit = True
         if buy_units > 0 and month_spent + buy_units <= monthly_units:
-            new_sh = buy_units / nav
+            new_sh = buy_units * (1 - fee_buy) / nav  # 申购费
             cost_basis = (cost_basis * shares + nav * new_sh) / (shares + new_sh)
             shares += new_sh
             invested += buy_units
             month_spent += buy_units
+            if dca_hit:
+                last_dca_idx = i
 
         # 三重止盈（机械执行，规则2优先于规则3）
         hi20 = max(r["nav"] for r in navs[max(0, i - 19):i + 1])
@@ -182,7 +202,7 @@ def simulate(navs, pes=None, monthly_units=100.0, asset_type="a",
             action, frac = "规则3", 1 / 3
         if action and shares > 0:
             sell_sh = shares * frac
-            proceeds = sell_sh * nav
+            proceeds = sell_sh * nav * (1 - fee_sell)  # 赎回费
             cost = sell_sh * cost_basis
             if proceeds > cost:
                 win += 1
@@ -233,7 +253,7 @@ def _metrics(navs, shares, cash, invested, sells, win, value_curve, invest_curve
     }
 
 
-def bench_uniform_dca(navs, monthly_units):
+def bench_uniform_dca(navs, monthly_units, fee_buy=0.0015):
     daily = monthly_units / float(DAYS_PER_MONTH)
     shares = invested = 0.0
     mk, spent = None, 0.0
@@ -242,17 +262,17 @@ def bench_uniform_dca(navs, monthly_units):
         if d != mk:
             mk, spent = d, 0.0
         if spent + daily <= monthly_units:
-            shares += daily / rec["nav"]
+            shares += daily * (1 - fee_buy) / rec["nav"]
             invested += daily
             spent += daily
     final = shares * navs[-1]["nav"]
     return {"total_return_pct": round((final - invested) / invested * 100, 2) if invested else 0.0}
 
 
-def bench_lsi(navs, monthly_units):
+def bench_lsi(navs, monthly_units, fee_buy=0.0015):
     months = max(1, round(len(navs) / float(DAYS_PER_MONTH)))
     total = monthly_units * months
-    final = total / navs[0]["nav"] * navs[-1]["nav"]
+    final = total * (1 - fee_buy) / navs[0]["nav"] * navs[-1]["nav"]
     return {"total_return_pct": round((final - total) / total * 100, 2)}
 
 
@@ -269,6 +289,11 @@ def main(argv=None):
     p.add_argument("--dd-thr", type=float, default=8.0, help="回撤止盈阈值%%（默认 8）")
     p.add_argument("--trailing-thr", type=float, default=8.0, help="移动止盈阈值%%（默认 8）")
     p.add_argument("--sweep", choices=["dd"], help="参数扫描：dd=回撤阈值 5-12 步长 1")
+    p.add_argument("--fee-buy", type=float, default=0.0015, help="申购费率（默认 0.15%%，一折平台口径）")
+    p.add_argument("--fee-sell", type=float, default=0.005, help="赎回费率（默认 0.5%%）")
+    p.add_argument("--dca-interval", type=int, default=5, help="最小补仓间隔（交易日，默认 5；0=不限制）")
+    p.add_argument("--rsi-confirm", type=int, default=0, dest="rsi_confirm",
+                   help="RSI 超卖确认天数（默认 0=当日即触发；2=连续2日<30才加码，减少假信号）")
     p.add_argument("--demo", action="store_true", help="使用内置合成数据演示")
     args = p.parse_args(argv)
 
@@ -290,14 +315,18 @@ def main(argv=None):
                 "note": "扫描固定移动止盈阈值，仅对比 total_return_pct；避免在单一序列上过拟合"}
 
     result = simulate(navs, pes_aligned, args.monthly_units, args.asset_type,
-                      dd_thr=args.dd_thr, trailing_thr=args.trailing_thr)
+                      dd_thr=args.dd_thr, trailing_thr=args.trailing_thr,
+                      fee_buy=args.fee_buy, fee_sell=args.fee_sell,
+                      dca_interval=args.dca_interval, rsi_confirm=args.rsi_confirm)
     return {
         "command": "backtest",
         "period": {"start": navs[0]["date"], "end": navs[-1]["date"], "days": len(navs)},
         "asset_type": args.asset_type,
+        "assumptions": {"fee_buy": args.fee_buy, "fee_sell": args.fee_sell,
+                        "dca_interval_days": args.dca_interval, "rsi_confirm": args.rsi_confirm},
         "strategy": result,
-        "benchmark_uniform_dca": bench_uniform_dca(navs, args.monthly_units),
-        "benchmark_lump_sum": bench_lsi(navs, args.monthly_units),
+        "benchmark_uniform_dca": bench_uniform_dca(navs, args.monthly_units, args.fee_buy),
+        "benchmark_lump_sum": bench_lsi(navs, args.monthly_units, args.fee_buy),
         "sells": result.pop("sells", []),
         "note": "金额仅为模拟单位；输出全部为百分比/倍数，不构成投资建议；单一序列回测存在过拟合风险，结论须多指数交叉验证",
     }
