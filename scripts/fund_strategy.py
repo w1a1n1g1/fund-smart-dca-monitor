@@ -260,8 +260,8 @@ def main(argv=None) -> int:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False))
         return 2
 
-    if getattr(args, "json", False) or True:  # 默认 JSON 输出，便于流水线接入
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+    # 默认 JSON 输出，便于流水线与 AI 智能体解析
+    print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
 

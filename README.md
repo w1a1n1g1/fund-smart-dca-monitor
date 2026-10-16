@@ -11,7 +11,7 @@
 
 ## 这是什么
 
-一个把「估值 + 趋势 + 超买超卖」三因子量化成**买入信号倍数**的纪律化定投辅助体系，配套**补仓档位**和**三重止盈**规则，并内置一份可直接安装到 AI 编程助手（Claude Code / Trae 等）的 SKILL 包。
+一个把「估值 + 趋势 + 超买超卖」三因子量化成**买入信号倍数**的纪律化定投辅助体系，配套**补仓档位**、**三重止盈**和**盘友圈公开实盘纪律诊断**，并内置一份可直接安装到 AI 编程助手（Claude Code / Trae 等）的 SKILL 包。
 
 设计哲学只有一条：**智能体是参谋，不是操盘手。**
 
@@ -96,7 +96,7 @@ python scripts/fund_strategy.py dca --drawdown 8.3 --daily-budget 40
 python scripts/fund_strategy.py exit-check --pe-percentile 87 --gain 21 --dd-20d 9
 ```
 
-所有命令支持 `--json` 输出，方便接入自动化流水线。`signal` 示例输出：
+所有命令默认输出 JSON（便于接入自动化流水线与 AI 智能体解析）。`signal` 示例输出：
 
 ```json
 {
