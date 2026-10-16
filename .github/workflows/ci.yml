@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.8", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Smoke test CLI
+        run: |
+          python scripts/fund_strategy.py signal --pe-percentile 34.8 --price 1.1138 --ma250 1.27 --rsi6 8.7
+          python scripts/fund_strategy.py dca --drawdown 8.3 --daily-budget 40
+          python scripts/fund_strategy.py exit-check --pe-percentile 87 --gain 21 --dd-20d 9

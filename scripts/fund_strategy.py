@@ -58,6 +58,12 @@ def rsi_modifier(rsi: float) -> float:
 
 
 def cmd_signal(args) -> dict:
+    for name, value in (("pe_percentile", args.pe_percentile), ("rsi6", args.rsi6)):
+        if not (0 <= value <= 100):
+            raise ValueError(f"{name} 应在 0-100 之间")
+    if args.price <= 0:
+        raise ValueError("price 必须大于 0")
+
     est = pe_multiplier(args.pe_percentile)
     ma, ratio = ma_multiplier(args.price, args.ma250)
     rsi_m = rsi_modifier(args.rsi6)
@@ -95,7 +101,12 @@ def cmd_dca(args) -> dict:
     """补仓档位：浮亏深度 → 日均额定额倍数"""
     dd = args.drawdown
     if dd < 0:
-        raise ValueError("drawdown 应为正数（现价低于成本的百分比）")
+        return {
+            "command": "dca",
+            "drawdown_pct": round(dd, 2),
+            "tier_multiple": 0,
+            "note": "现价高于成本（浮盈中），不触发补仓档位",
+        }
     for lo, hi, mult in DCA_TIERS:
         if lo <= dd < hi:
             return {
@@ -111,6 +122,9 @@ def cmd_dca(args) -> dict:
 
 def cmd_exit_check(args) -> dict:
     """三重止盈体检"""
+    if args.pe_percentile is not None and not (0 <= args.pe_percentile <= 100):
+        raise ValueError("pe_percentile 应在 0-100 之间")
+
     gain = args.gain if args.gain is not None else 0.0
     actions = []
 
