@@ -11,30 +11,35 @@ description: 基金智能定投监控技能。按估值分位×均线偏离×RSI
 
 **买入信号 = 估值倍数 × 均线倍数 × RSI 修正，综合倍数封顶 2.0**
 
-- PE 分位（近52周口径）：<20%→1.5｜20-50%→1.0｜50-80%→0.5｜>80%→0（不买）
+- PE 分位（近52周口径，信号计算只用此口径）：<20%→1.5｜20-50%→1.0｜50-80%→0.5｜>80%→0（不买）
+- **PE 双口径并列输出**：蛋卷 10 年分位（长期贵贱）+ iFinD 近 1 年分位（短期位置），不得互相替换
 - 现价/MA250：<0.95→1.2｜0.95-1.0→1.1｜1.0-1.05→0.9｜>1.05→0.8
-- RSI：RSI6<30 超卖 ×1.15（iFinD 返回 RSI6 口径，按更敏感处理；>80 超买信号封顶 0.5）
+- RSI：RSI6<30 超卖 ×1.15（iFinD 返回 RSI6 口径，按更敏感处理，**输出必须标注口径**；>80 超买信号封顶 0.5）
 - 综合信号 <1.0 → 只观察不动手；≥1.0 → 给出档位和占比建议
 
 ## 每日监控流程
 
-1. **取数**（按 [references/data-sources.md](references/data-sources.md) 优先级）：
-   - 标的指数收盘价、MA250、RSI6
-   - 标的指数 PE 近 52 周分位
+1. **取数**（iFinD 优先，工具映射见 [references/data-sources.md](references/data-sources.md) 第 0 节）：
+   - 盘中估值：`get_security_highfreq_quotes`（dataVol=0 时回退最新净值）
+   - PE 分位：`get_security_indicators`（近 1 年口径）+ 蛋卷（10 年口径），**双口径并列**
+   - 标的指数收盘价、MA250、RSI6（标注 RSI 口径）
+   - 公告：`search_notice` 近 3 天（**必须带基金名+状态词**，泛查只命中股票分红）
+   - 市场事件：`search_trending_news`
    - 持仓基金净值、申购状态（读用户提供/本地维护的持仓档案）
-2. **算信号**：优先调用 [scripts/fund_strategy.py](scripts/fund_strategy.py)（零依赖）：
+2. **算信号**：优先调用 [scripts/fund_strategy.py](scripts/fund_strategy.py)（零依赖，默认输出 JSON）：
    ```bash
-   python scripts/fund_strategy.py signal --pe-percentile 34.8 --price 1.1138 --ma250 1.27 --rsi6 8.7 --json
+   python scripts/fund_strategy.py signal --pe-percentile 34.8 --price 1.1138 --ma250 1.27 --rsi6 8.7
    ```
 3. **算补仓**（现价低于成本时）：
    ```bash
-   python scripts/fund_strategy.py dca --drawdown 8.3 --daily-budget 40 --json
+   python scripts/fund_strategy.py dca --drawdown 8.3 --daily-budget 40
    ```
-4. **止盈体检**：
+4. **止盈体检**（估值止盈按资产类型分档：a=A股/红利、qdii、gold=黄金、bond=纯债；输出距各止盈线的距离）：
    ```bash
-   python scripts/fund_strategy.py exit-check --pe-percentile 87 --gain 21 --dd-20d 9 --json
+   python scripts/fund_strategy.py exit-check --asset-type qdii --pe-percentile 60 --gain 26 --dd-20d 9
+   python scripts/fund_strategy.py exit-check --asset-type gold --ma-deviation 22 --rsi6 76
    ```
-5. **输出日报**：按 [references/daily-report.md](references/daily-report.md) 四段式模板（核心结论/数据面/情报面/作战计划）。
+5. **输出日报**：按 [references/daily-report.md](references/daily-report.md) 四段式（【核心结论】一句话 /【数据面】含 PE 双口径+档位+占比 /【情报面】🎯定投开关+💰止盈线距离 /【作战计划】）。
 
 ## 盘友圈公开实盘分析（可选流程）
 
@@ -60,9 +65,10 @@ description: 基金智能定投监控技能。按估值分位×均线偏离×RSI
 
 ## 口径备注
 
-- RSI：数据源返回 RSI6 时按更敏感的超卖口径处理（<30 即 ×1.15）
-- PE 分位：52 周（iFinD）与 10 年（蛋卷）口径不同，混用时须注明口径
+- RSI：数据源返回 RSI6 时按更敏感的超卖口径处理（<30 即 ×1.15），**输出标注口径**
+- PE 分位：**双口径并列**（蛋卷 10 年 = 长期贵贱；iFinD 近 1 年 = 短期位置，信号计算口径），混用时须注明
 - 蛋卷接口需 `curl -sL` 跟随 301
+- iFinD 公告搜索：泛查只命中股票分红，须带基金名+状态词
 
 ## 完整规则
 

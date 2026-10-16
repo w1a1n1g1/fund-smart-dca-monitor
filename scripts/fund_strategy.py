@@ -122,38 +122,112 @@ def cmd_dca(args) -> dict:
     return {"command": "dca", "drawdown_pct": dd, "tier_multiple": 0, "note": "未落入任何档位"}
 
 
+# 估值止盈分资产类型档位（2026-10-16 规则升级）
+ASSET_RULES = {
+    "a":    {"name": "A股/红利", "pe1": 85, "gain1": 20.0, "pe2": 95, "gain2": 30.0},
+    "qdii": {"name": "QDII",    "pe1": 85, "gain1": 25.0, "pe2": 95, "gain2": 30.0},
+    "gold": {"name": "黄金"},
+    "bond": {"name": "纯债"},
+}
+
+
+def _line(threshold, current, state, note=""):
+    """止盈线距离：threshold-current 为正表示距触发还有余量，为负表示已越过"""
+    return {
+        "threshold": threshold,
+        "current": current,
+        "distance": round(threshold - current, 2),
+        "state": state,
+        "note": note,
+    }
+
+
 def cmd_exit_check(args) -> dict:
-    """三重止盈体检"""
+    """三重止盈体检（估值止盈按资产类型分档），输出距各止盈线的距离"""
     if args.pe_percentile is not None and not (0 <= args.pe_percentile <= 100):
         raise ValueError("pe_percentile 应在 0-100 之间")
 
+    asset = getattr(args, "asset_type", "a") or "a"
+    if asset not in ASSET_RULES:
+        raise ValueError("asset_type 应为 a/qdii/gold/bond")
+    rules = ASSET_RULES[asset]
+
     gain = args.gain if args.gain is not None else 0.0
+    rsi = getattr(args, "rsi6", None)
+    ma_dev = getattr(args, "ma_deviation", None)
+    if rsi is not None and not (0 <= rsi <= 100):
+        raise ValueError("rsi6 应在 0-100 之间")
+
     actions = []
+    lines = {}
 
-    # 规则 1：估值/浮盈分批止盈
-    rule1a = (args.pe_percentile is not None and args.pe_percentile > 85) or gain > 20
-    rule1b = (args.pe_percentile is not None and args.pe_percentile > 95) or gain > 30
-    if rule1b:
-        actions.append("规则1b：PE分位>95% 或 浮盈>30% → 累计减仓 2/3（本次再减 1/3）")
-    elif rule1a:
-        actions.append("规则1a：PE分位>85% 或 浮盈>20% → 减仓 1/3")
+    # 规则 1：估值/浮盈分批止盈（按资产类型分档）
+    if asset == "bond":
+        lines["rule1_valuation"] = {"state": "不适用", "note": "纯债不止盈"}
+    elif asset == "gold":
+        trig_dev = ma_dev is not None and ma_dev > 20
+        trig_rsi = rsi is not None and rsi > 80
+        if trig_dev or trig_rsi:
+            reasons = []
+            if trig_dev:
+                reasons.append("偏离250日均线>20%")
+            if trig_rsi:
+                reasons.append("RSI>80")
+            actions.append("规则1：黄金 " + " 或 ".join(reasons) + " → 减仓 1/3")
+        if ma_dev is not None:
+            lines["rule1_ma_deviation"] = _line(
+                20, ma_dev, "已触发" if trig_dev else ("接近" if ma_dev > 18 else "正常"))
+        if rsi is not None:
+            lines["rule1_rsi"] = _line(
+                80, rsi, "已触发" if trig_rsi else ("接近" if rsi > 75 else "正常"))
+    else:
+        pe = args.pe_percentile
+        trig1a = (pe is not None and pe > rules["pe1"]) or gain > rules["gain1"]
+        trig1b = (pe is not None and pe > rules["pe2"]) or gain > rules["gain2"]
+        if trig1b:
+            actions.append(
+                f"规则1b：PE分位>{rules['pe2']}% 或 浮盈>{rules['gain2']}% → 累计减仓 2/3（本次再减 1/3）")
+        elif trig1a:
+            actions.append(f"规则1a：PE分位>{rules['pe1']}% 或 浮盈>{rules['gain1']}% → 减仓 1/3")
+        if pe is not None:
+            lines["rule1_pe"] = _line(
+                rules["pe1"], pe,
+                "已触发" if pe > rules["pe1"] else ("接近" if pe > rules["pe1"] - 5 else "正常"))
+        lines["rule1_gain"] = _line(
+            rules["gain1"], gain,
+            "已触发" if gain > rules["gain1"] else ("接近" if gain > rules["gain1"] - 5 else "正常"))
 
-    # 规则 2：回撤止盈（浮盈>10% 后，距20日高点回撤>8% 卖一半）
-    if gain > 10 and args.dd_20d is not None and args.dd_20d > 8:
-        actions.append("规则2：浮盈>10% 且 距20日高点回撤>8% → 卖出 1/2")
+    # 规则 2：回撤止盈（浮盈>10% 后，距20日高点回撤>8% 卖一半）——任何基金
+    if args.dd_20d is not None:
+        active = gain > 10
+        trig = active and args.dd_20d > 8
+        if trig:
+            actions.append("规则2：浮盈>10% 且 距20日高点回撤>8% → 卖出 1/2")
+        lines["rule2_drawdown_20d"] = _line(
+            8, args.dd_20d,
+            "已触发" if trig else ("未激活（浮盈需>10%）" if not active else ("接近" if args.dd_20d > 6 else "正常")))
 
     # 规则 3：移动止盈（浮盈>15% 后，距最高点回撤>8% 再卖1/3）
-    if gain > 15 and args.dd_high is not None and args.dd_high > 8:
-        actions.append("规则3：浮盈>15% 且 距最高点回撤>8% → 卖出 1/3")
+    if args.dd_high is not None:
+        active = gain > 15
+        trig = active and args.dd_high > 8
+        if trig:
+            actions.append("规则3：浮盈>15% 且 距最高点回撤>8% → 卖出 1/3")
+        lines["rule3_trailing"] = _line(
+            8, args.dd_high,
+            "已触发" if trig else ("未激活（浮盈需>15%）" if not active else ("接近" if args.dd_high > 6 else "正常")))
 
     return {
         "command": "exit-check",
+        "asset_type": asset,
+        "asset_name": rules["name"],
         "pe_percentile": args.pe_percentile,
         "gain_pct": gain,
         "drawdown_from_20d_high_pct": args.dd_20d,
         "drawdown_from_all_time_high_pct": args.dd_high,
         "take_profit_triggered": len(actions) > 0,
         "actions": actions,
+        "take_profit_lines": lines,
     }
 
 
@@ -230,6 +304,11 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--gain", type=float, default=None, help="浮盈百分比")
     e.add_argument("--dd-20d", type=float, default=None, dest="dd_20d", help="距20日高点回撤百分比")
     e.add_argument("--dd-high", type=float, default=None, dest="dd_high", help="距历史最高点回撤百分比")
+    e.add_argument("--asset-type", default="a", dest="asset_type", choices=["a", "qdii", "gold", "bond"],
+                   help="资产类型：a=A股/红利、qdii=海外、gold=黄金、bond=纯债（估值止盈分档）")
+    e.add_argument("--rsi6", type=float, default=None, help="RSI6 值（黄金止盈线用，0-100）")
+    e.add_argument("--ma-deviation", type=float, default=None, dest="ma_deviation",
+                   help="现价偏离250日均线百分比，正为上方（黄金止盈线用）")
 
     p_ = sub.add_parser("peer-check", help="盘友圈公开实盘一致性分析")
     p_.add_argument("--action", required=True, choices=["buy", "sell", "hold"], help="发帖人操作：buy/sell/hold")

@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
 ![No Dependencies](https://img.shields.io/badge/依赖-零-orange.svg)
-![Tests](https://img.shields.io/badge/tests-26%20passed-brightgreen.svg)
+![Tests](https://img.shields.io/badge/tests-32%20passed-brightgreen.svg)
 
 ## 这是什么
 
@@ -62,11 +62,21 @@ flowchart TD
 
 > 月度总预算是**所有标的共用**的弹药库，不是每只各一份；分批投放，绝不梭哈。
 
-### 三重止盈
+### 三重止盈（估值止盈按资产类型分档）
 
-1. **估值止盈**：PE 分位 >85% 或浮盈 >20% → 减 1/3；>95% 或 >30% → 再减 1/3
-2. **回撤止盈**：浮盈 >10% 后，从 20 日高点回撤 >8% → 卖出一半
-3. **移动止盈**：浮盈 >15% 后，从历史最高点回撤 >8% → 再卖 1/3
+1. **估值止盈**：
+
+| 资产类型 | 减仓 1/3 | 再减 1/3（累计 2/3） |
+|---|---|---|
+| A股宽基 / 红利 | PE >85% 或浮盈 >20% | PE >95% 或浮盈 >30% |
+| QDII（海外） | PE >85% 或浮盈 >25% | 暂沿用 PE >95% 或浮盈 >30% |
+| 黄金 | 偏离 MA250 >20% 或 RSI >80 | — |
+| 纯债 | 不止盈 | — |
+
+2. **回撤止盈**（任何基金）：浮盈 >10% 后，从 20 日高点回撤 >8% → 卖出一半
+3. **移动止盈**（任何基金）：浮盈 >15% 后，从历史最高点回撤 >8% → 再卖 1/3
+
+每日 `exit-check` 输出每只基金**距各止盈线的距离**（`take_profit_lines`：threshold/current/distance/state）。
 
 ### 盘友圈公开实盘分析（社区诊断）
 
@@ -154,7 +164,7 @@ fund-smart-dca-monitor/
 ├── scripts/
 │   └── fund_strategy.py         # 信号/补仓/止盈/实盘诊断计算器（零依赖）
 ├── tests/
-│   └── test_fund_strategy.py    # 26 个单元测试（unittest，零依赖）
+│   └── test_fund_strategy.py    # 32 个单元测试（unittest，零依赖）
 ├── docs/
 │   └── promo.md                 # 盘友圈分享文案
 ├── .github/

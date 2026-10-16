@@ -128,6 +128,50 @@ class TestExitCheck(unittest.TestCase):
             fs.cmd_exit_check(Namespace(pe_percentile=120, gain=0, dd_20d=None, dd_high=None))
 
 
+class TestAssetTypeExitCheck(unittest.TestCase):
+    """估值止盈按资产类型分档（2026-10-16 规则升级）"""
+
+    def test_qdii_gain_threshold(self):
+        """QDII 浮盈第一档为 25%（A股为 20%）：22% 不触发，26% 触发"""
+        out22 = fs.cmd_exit_check(Namespace(pe_percentile=None, gain=22, dd_20d=None, dd_high=None,
+                                            asset_type="qdii"))
+        self.assertFalse(out22["take_profit_triggered"])
+        out26 = fs.cmd_exit_check(Namespace(pe_percentile=None, gain=26, dd_20d=None, dd_high=None,
+                                            asset_type="qdii"))
+        self.assertIn("规则1a", out26["actions"][0])
+
+    def test_gold_deviation_trigger(self):
+        out = fs.cmd_exit_check(Namespace(pe_percentile=None, gain=0, dd_20d=None, dd_high=None,
+                                          asset_type="gold", ma_deviation=25, rsi6=50))
+        self.assertIn("偏离250日均线>20%", out["actions"][0])
+        self.assertEqual(out["take_profit_lines"]["rule1_ma_deviation"]["state"], "已触发")
+
+    def test_gold_rsi_trigger(self):
+        out = fs.cmd_exit_check(Namespace(pe_percentile=None, gain=0, dd_20d=None, dd_high=None,
+                                          asset_type="gold", ma_deviation=5, rsi6=85))
+        self.assertIn("RSI>80", out["actions"][0])
+
+    def test_bond_no_valuation_tp(self):
+        out = fs.cmd_exit_check(Namespace(pe_percentile=99, gain=50, dd_20d=None, dd_high=None,
+                                          asset_type="bond"))
+        self.assertFalse(out["take_profit_triggered"])
+        self.assertEqual(out["take_profit_lines"]["rule1_valuation"]["state"], "不适用")
+
+    def test_lines_distance_output(self):
+        """每日输出距各止盈线的距离"""
+        out = fs.cmd_exit_check(Namespace(pe_percentile=84, gain=19, dd_20d=7, dd_high=None,
+                                          asset_type="a"))
+        self.assertFalse(out["take_profit_triggered"])
+        self.assertEqual(out["take_profit_lines"]["rule1_pe"]["state"], "接近")
+        self.assertAlmostEqual(out["take_profit_lines"]["rule1_pe"]["distance"], 1, places=2)
+        self.assertEqual(out["take_profit_lines"]["rule2_drawdown_20d"]["state"], "接近")
+
+    def test_gold_invalid_rsi(self):
+        with self.assertRaises(ValueError):
+            fs.cmd_exit_check(Namespace(pe_percentile=None, gain=0, dd_20d=None, dd_high=None,
+                                        asset_type="gold", rsi6=120))
+
+
 class TestPeerCheck(unittest.TestCase):
     def test_buy_consistent(self):
         out = fs.cmd_peer_check(Namespace(action="buy", cost=1.02, price=1.1138,

@@ -22,4 +22,5 @@ jobs:
         run: |
           python scripts/fund_strategy.py signal --pe-percentile 34.8 --price 1.1138 --ma250 1.27 --rsi6 8.7
           python scripts/fund_strategy.py dca --drawdown 8.3 --daily-budget 40
-          python scripts/fund_strategy.py exit-check --pe-percentile 87 --gain 21 --dd-20d 9
+          python scripts/fund_strategy.py exit-check --asset-type qdii --pe-percentile 60 --gain 26 --dd-20d 9
+          python scripts/fund_strategy.py exit-check --asset-type gold --ma-deviation 22 --rsi6 76
