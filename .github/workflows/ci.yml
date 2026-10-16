@@ -26,3 +26,4 @@ jobs:
           python scripts/fund_strategy.py exit-check --asset-type gold --ma-deviation 22 --rsi6 76
           python scripts/fund_strategy.py exit-check --asset-type a --gain 26 --dd-20d 9 --atr-pct 5
           python scripts/fund_backtest.py --demo --sweep dd
+          python scripts/fund_backtest.py --demo --rsi-confirm 2 --dca-interval 5 --exit-cooldown 20

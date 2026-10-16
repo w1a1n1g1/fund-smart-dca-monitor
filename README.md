@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
 ![No Dependencies](https://img.shields.io/badge/依赖-零-orange.svg)
-![Tests](https://img.shields.io/badge/tests-51%20passed-brightgreen.svg)
+![Tests](https://img.shields.io/badge/tests-52%20passed-brightgreen.svg)
 
 ## 这是什么
 
@@ -107,6 +107,7 @@ python scripts/fund_strategy.py exit-check --pe-percentile 87 --gain 21 --dd-20d
 
 # 参数回测：策略 vs 均匀定投 vs 一次性投入（零依赖，输入天天基金历史净值 + PE分位序列）
 python scripts/fund_backtest.py --nav-file nav.json --pe-file pe.json --sweep dd
+# 可选参数：--fee-buy 0.0015 --fee-sell 0.005（一折口径）--dca-interval 5 --rsi-confirm 2 --exit-cooldown 20
 ```
 
 所有命令默认输出 JSON（便于接入自动化流水线与 AI 智能体解析）。`signal` 示例输出：
@@ -201,6 +202,9 @@ fund-smart-dca-monitor/
 
 **Q：怎么接入自动化 / AI 智能体？**
 命令默认输出 JSON，可被任意调度器解析；把仓库放进 AI 助手技能目录即可获得完整监控日报能力（见上文安装说明）。
+
+**Q：回测里策略跑输了均匀定投，体系还有用吗？**
+2019-2026 三指数（沪深300/中证500/红利）回测中，三因子策略总收益确实低于均匀定投与一次性投入——这正是估值门控在长牛中的代价：高位少买、宁可错过。它的价值在高估值入场窗口的保护与回撤控制（红利样本策略最大回撤仅 6.5%），不是在牛市跑赢梭哈。完整数据与口径说明（含回测器"月预算当月作废"的保守假设）见 [references/strategy-rules.md](references/strategy-rules.md) 第 3 章"参数回测验证记录"。
 
 ## 免责声明
 

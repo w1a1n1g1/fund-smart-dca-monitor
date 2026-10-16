@@ -77,11 +77,14 @@ description: 基金智能定投监控技能。按估值分位×均线偏离×RSI
 ```bash
 python scripts/fund_backtest.py --nav-file nav.json --pe-file pe.json   # 策略 vs 均匀DCA vs 一次性投入
 python scripts/fund_backtest.py --nav-file nav.json --pe-file pe.json --sweep dd   # 回撤阈值 5-12 扫描
+# 可调参数：--fee-buy/--fee-sell（默认 0.15%/0.5%）--dca-interval 5（最小补仓间隔）
+#          --rsi-confirm 2（连续2日 RSI<30 才确认超卖）--exit-cooldown 20（止盈冷却期）
 ```
 
 - 输入：天天基金历史净值 JSON + 对应指数 PE 分位序列（均支持字典或数组格式）
 - 输出：年化收益 / Sharpe / 最大回撤 / 胜率，全部为百分比与倍数，不给金额建议
-- 纪律：单一序列回测存在过拟合风险，结论须多指数交叉验证后才可写入规则
+- 回测器语义：止盈触发后 20 交易日冷却、规则 1 每轮最多 1a+1b 两次（对应分批锁利）；月预算当月作废（真实弹药库滚存，解读时注意口径差）
+- 纪律：单一序列回测存在过拟合风险，结论须多指数交叉验证后才可写入规则。2026-10-16 已用沪深300/中证500/红利完成交叉验证，**默认参数全部保持不变**，详见 [references/strategy-rules.md](references/strategy-rules.md) 第 3 章"参数回测验证记录"
 
 ## 完整规则
 

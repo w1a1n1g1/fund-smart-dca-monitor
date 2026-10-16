@@ -309,8 +309,14 @@ def main(argv=None):
     p.add_argument("--dca-interval", type=int, default=5, help="最小补仓间隔（交易日，默认 5；0=不限制）")
     p.add_argument("--rsi-confirm", type=int, default=0, dest="rsi_confirm",
                    help="RSI 超卖确认天数（默认 0=当日即触发；2=连续2日<30才加码，减少假信号）")
+    p.add_argument("--exit-cooldown", type=int, default=20, dest="exit_cooldown",
+                   help="止盈冷却期（交易日，默认 20）：任一止盈触发后该窗口内不再触发，"
+                        "对应真实体系'分批锁利'而非逐日循环卖出；0=不限制")
     p.add_argument("--demo", action="store_true", help="使用内置合成数据演示")
     args = p.parse_args(argv)
+
+    if args.exit_cooldown < 0:
+        p.error("--exit-cooldown 不能为负")
 
     if args.demo:
         navs, pes = demo_data()
@@ -332,14 +338,15 @@ def main(argv=None):
     result = simulate(navs, pes_aligned, args.monthly_units, args.asset_type,
                       dd_thr=args.dd_thr, trailing_thr=args.trailing_thr,
                       fee_buy=args.fee_buy, fee_sell=args.fee_sell,
-                      dca_interval=args.dca_interval, rsi_confirm=args.rsi_confirm)
+                      dca_interval=args.dca_interval, rsi_confirm=args.rsi_confirm,
+                      exit_cooldown=args.exit_cooldown)
     return {
         "command": "backtest",
         "period": {"start": navs[0]["date"], "end": navs[-1]["date"], "days": len(navs)},
         "asset_type": args.asset_type,
         "assumptions": {"fee_buy": args.fee_buy, "fee_sell": args.fee_sell,
                         "dca_interval_days": args.dca_interval, "rsi_confirm": args.rsi_confirm,
-                        "exit_cooldown_days": 20},
+                        "exit_cooldown_days": args.exit_cooldown},
         "strategy": result,
         "benchmark_uniform_dca": bench_uniform_dca(navs, args.monthly_units, args.fee_buy),
         "benchmark_lump_sum": bench_lsi(navs, args.monthly_units, args.fee_buy),

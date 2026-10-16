@@ -156,6 +156,12 @@ class TestExitGuard(unittest.TestCase):
         others = [s for s in res["sells"] if not s["rule"].startswith("规则1")]
         self.assertEqual(len(others), 0)  # 平坦净值下不应有规则2/3卖出
 
+    def test_exit_cooldown_cli_arg(self):
+        out = fb.main(["--demo", "--exit-cooldown", "10"])
+        self.assertEqual(out["assumptions"]["exit_cooldown_days"], 10)
+        with self.assertRaises(SystemExit):
+            fb.main(["--demo", "--exit-cooldown", "-1"])
+
 
 if __name__ == "__main__":
     unittest.main()
