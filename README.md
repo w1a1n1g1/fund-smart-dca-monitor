@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
 ![No Dependencies](https://img.shields.io/badge/依赖-零-orange.svg)
-![Tests](https://img.shields.io/badge/tests-52%20passed-brightgreen.svg)
+![Tests](https://img.shields.io/badge/tests-67%20passed-brightgreen.svg)
 
 ## 这是什么
 
@@ -69,7 +69,7 @@ flowchart TD
 | 资产类型 | 减仓 1/3 | 再减 1/3（累计 2/3） |
 |---|---|---|
 | A股宽基 / 红利 | PE >85% 或浮盈 >20% | PE >95% 或浮盈 >30% |
-| QDII（海外） | PE >85% 或浮盈 >25% | 暂沿用 PE >95% 或浮盈 >30% |
+| QDII（海外） | PE >85% 或浮盈 >25% | PE >95% 或浮盈 >30%（标普500 真实数据验证后维持） |
 | 黄金 | 偏离 MA250 >20% 或 RSI >80 | — |
 | 纯债 | 不止盈 | — |
 
@@ -89,7 +89,13 @@ python scripts/fund_strategy.py peer-check --action buy --cost 1.02 --price 1.09
 
 输出：发帖人浮盈、当前三因子信号、一致性判定（顺势/抢跑/逆纪律）、风险标记（年线上追买/高估值/幸存者偏差）。配套**社区情绪温度计**（贪婪/中性/恐慌三档），作逆向纪律提醒。
 
-> 合规说明：支付宝无公开接口，本项目**不做自动抓取**；仅分析用户主动粘贴的公开内容，不存储他人可识别信息，不构成跟单建议。
+想长期跟踪同一个人？把他每次公开操作整理成本地 JSON 时间线，用 `poster-track` 批量对照，输出 0-100 纪律评分、顺势/逆势统计与相对上次的分数趋势（`--prev-score`）：
+
+```bash
+python scripts/fund_strategy.py poster-track --file poster_A.json --prev-score 70
+```
+
+> 合规说明：支付宝无公开接口，本项目**不做自动抓取**；仅分析用户主动粘贴的公开内容，不存储他人可识别信息（档案只用自起匿名代号），不构成跟单建议。
 
 ## 快速开始
 
@@ -105,9 +111,14 @@ python scripts/fund_strategy.py dca --drawdown 8.3 --daily-budget 40
 # 止盈体检：PE分位 87%，浮盈 21%，距20日高点回撤 9%（可选 --atr-pct 启用 ATR 自适应阈值）
 python scripts/fund_strategy.py exit-check --pe-percentile 87 --gain 21 --dd-20d 9
 
-# 参数回测：策略 vs 均匀定投 vs 一次性投入（零依赖，输入天天基金历史净值 + PE分位序列）
+# 回测取数（零依赖脚本，抓公开数据）：天天基金累计净值 + 中证官网 PE 52周分位
+python scripts/fetch_data.py --fund 110020 --index 000300 \
+  --nav-out nav.json --pe-out pe.json --start 2019-01-01
+
+# 参数回测：策略 vs 均匀定投 vs 一次性投入
 python scripts/fund_backtest.py --nav-file nav.json --pe-file pe.json --sweep dd
-# 可选参数：--fee-buy 0.0015 --fee-sell 0.005（一折口径）--dca-interval 5 --rsi-confirm 2 --exit-cooldown 20
+# 可选：--fee-buy 0.0015 --fee-sell 0.005（一折口径）--dca-interval 5 --rsi-confirm 2
+#       --exit-cooldown 20 --budget-rollover（月预算滚存，默认关=与历史结果可比）
 ```
 
 所有命令默认输出 JSON（便于接入自动化流水线与 AI 智能体解析）。`signal` 示例输出：
@@ -166,11 +177,13 @@ fund-smart-dca-monitor/
 │   ├── daily-report.md          # 四段式监控日报模板
 │   └── community-analysis.md    # 盘友圈公开实盘分析框架
 ├── scripts/
-│   ├── fund_strategy.py         # 信号/补仓/止盈/实盘诊断计算器（零依赖）
-│   └── fund_backtest.py         # 三因子策略轻量回测（零依赖，含参数扫描）
+│   ├── fund_strategy.py         # 信号/补仓/止盈/实盘诊断/发帖人跟踪（零依赖）
+│   ├── fund_backtest.py         # 三因子策略轻量回测（零依赖，含参数扫描）
+│   └── fetch_data.py            # 回测取数：天天基金净值 + 中证官网 PE 分位（零依赖）
 ├── tests/
 │   ├── test_fund_strategy.py    # 单元测试（unittest，零依赖）
-│   └── test_fund_backtest.py    # 回测与 ATR 自适应测试
+│   ├── test_fund_backtest.py    # 回测与 ATR 自适应测试
+│   └── test_fetch_data.py       # 取数解析测试（离线 mock，不联网）
 ├── docs/
 │   └── promo.md                 # 盘友圈分享文案
 ├── .github/
@@ -204,7 +217,7 @@ fund-smart-dca-monitor/
 命令默认输出 JSON，可被任意调度器解析；把仓库放进 AI 助手技能目录即可获得完整监控日报能力（见上文安装说明）。
 
 **Q：回测里策略跑输了均匀定投，体系还有用吗？**
-2019-2026 三指数（沪深300/中证500/红利）回测中，三因子策略总收益确实低于均匀定投与一次性投入——这正是估值门控在长牛中的代价：高位少买、宁可错过。它的价值在高估值入场窗口的保护与回撤控制（红利样本策略最大回撤仅 6.5%），不是在牛市跑赢梭哈。完整数据与口径说明（含回测器"月预算当月作废"的保守假设）见 [references/strategy-rules.md](references/strategy-rules.md) 第 3 章"参数回测验证记录"。
+2019-2026 沪深300/中证500/红利/黄金/标普500 五个公开代理的真实数据回测中，三因子策略总收益均低于均匀定投与一次性投入——这正是估值门控在长牛中的代价：高位少买、宁可错过（黄金单边牛市还会被 MA20% 止盈线频繁锁利，7.7 年 64 次卖出）。它的价值在高估值入场窗口的保护与回撤控制，不是在牛市跑赢梭哈。完整两轮数据、月预算滚存对比与口径说明见 [references/strategy-rules.md](references/strategy-rules.md) 第 3 章"参数回测验证记录"，数据可用 `scripts/fetch_data.py` 随时复跑。
 
 ## 免责声明
 

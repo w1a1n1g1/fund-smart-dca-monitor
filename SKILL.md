@@ -1,6 +1,6 @@
 ---
 name: fund-smart-dca-monitor
-description: 基金智能定投监控技能。按估值分位×均线偏离×RSI 修正计算买入信号倍数、补仓档位与三重止盈提示，输出四段式监控日报（核心结论/数据面/情报面/作战计划）；支持分析盘友圈公开实盘帖（晒单一致性诊断、社区情绪温度计）。Use when the user asks for 基金定投信号、加仓补仓档位、止盈提醒、基金组合每日监控、盘前盘后复盘、分析盘友圈实盘、别人晒的持仓、跟单参考. 铁律：只算信号、给档位和占比，不给金额建议、不代用户操作。
+description: 基金智能定投监控技能。按估值分位×均线偏离×RSI 修正计算买入信号倍数、补仓档位与三重止盈提示，输出四段式监控日报（核心结论/数据面/情报面/作战计划）；支持分析盘友圈公开实盘帖（晒单一致性诊断、发帖人长期纪律评分、社区情绪温度计）与零依赖真实数据回测。Use when the user asks for 基金定投信号、加仓补仓档位、止盈提醒、基金组合每日监控、盘前盘后复盘、分析盘友圈实盘、别人晒的持仓、跟单参考、跟踪某个发帖人、策略参数回测. 铁律：只算信号、给档位和占比，不给金额建议、不代用户操作。
 ---
 
 # 基金智能定投监控（fund-smart-dca-monitor）
@@ -51,7 +51,11 @@ description: 基金智能定投监控技能。按估值分位×均线偏离×RSI
    python scripts/fund_strategy.py peer-check --action buy --cost 1.02 --price 1.09 --pe-percentile 35 --ma250 1.05 --rsi6 28
    ```
 3. 输出**诊断卡**（一致性判定 + 风险标记 + 可借鉴点）与**社区情绪温度计**
-4. 合规红线：不自动抓取支付宝内容；不复述他人昵称/头像；不给跟单结论；样本存在幸存者偏差须提示
+4. 用户想长期跟踪同一发帖人时，让其把公开操作按 [references/community-analysis.md](references/community-analysis.md) 4b 节整理为本地 JSON 时间线，调用 `poster-track`（输出 0-100 纪律评分、aligned/partial/against 统计、风险标签计数；`--prev-score` 给上次评分时输出趋势）：
+   ```bash
+   python scripts/fund_strategy.py poster-track --file poster_A.json --prev-score 70
+   ```
+5. 合规红线：不自动抓取支付宝内容；不复述他人昵称/头像（档案只用自起匿名代号）；不给跟单结论；样本存在幸存者偏差须提示
 
 ## 铁律（不可违反）
 
@@ -72,19 +76,21 @@ description: 基金智能定投监控技能。按估值分位×均线偏离×RSI
 
 ## 参数回测（可选流程）
 
-需要验证三因子与止盈参数时，调用 [scripts/fund_backtest.py](scripts/fund_backtest.py)（零依赖）：
+需要验证三因子与止盈参数时，调用 [scripts/fund_backtest.py](scripts/fund_backtest.py)（零依赖）。回测输入可用 [scripts/fetch_data.py](scripts/fetch_data.py) 现场抓公开数据（天天基金累计净值 + 中证官网 PE 52 周分位，零依赖；黄金/QDII 只取净值、pes=None）：
 
 ```bash
+python scripts/fetch_data.py --fund 110020 --index 000300 --nav-out nav.json --pe-out pe.json --start 2019-01-01
 python scripts/fund_backtest.py --nav-file nav.json --pe-file pe.json   # 策略 vs 均匀DCA vs 一次性投入
 python scripts/fund_backtest.py --nav-file nav.json --pe-file pe.json --sweep dd   # 回撤阈值 5-12 扫描
 # 可调参数：--fee-buy/--fee-sell（默认 0.15%/0.5%）--dca-interval 5（最小补仓间隔）
 #          --rsi-confirm 2（连续2日 RSI<30 才确认超卖）--exit-cooldown 20（止盈冷却期）
+#          --budget-rollover（月预算滚存；默认关=当月作废，与历史结果可比）
 ```
 
 - 输入：天天基金历史净值 JSON + 对应指数 PE 分位序列（均支持字典或数组格式）
 - 输出：年化收益 / Sharpe / 最大回撤 / 胜率，全部为百分比与倍数，不给金额建议
-- 回测器语义：止盈触发后 20 交易日冷却、规则 1 每轮最多 1a+1b 两次（对应分批锁利）；月预算当月作废（真实弹药库滚存，解读时注意口径差）
-- 纪律：单一序列回测存在过拟合风险，结论须多指数交叉验证后才可写入规则。2026-10-16 已用沪深300/中证500/红利完成交叉验证，**默认参数全部保持不变**，详见 [references/strategy-rules.md](references/strategy-rules.md) 第 3 章"参数回测验证记录"
+- 回测器语义：止盈触发后 20 交易日冷却、规则 1 每轮最多 1a+1b 两次（对应分批锁利）；月预算默认当月作废，`--budget-rollover` 开启滚存（投入增加但收益不保证更高）
+- 纪律：单一序列回测存在过拟合风险，结论须多指数交叉验证后才可写入规则。已完成两轮：2026-10-16 沪深300/中证500/红利（默认参数全部保持），2026-10-17 扩到黄金/标普500 QDII（QDII 第二档维持 30%；记录黄金牛市频繁止盈的代价），详见 [references/strategy-rules.md](references/strategy-rules.md) 第 3 章"参数回测验证记录"
 
 ## 完整规则
 

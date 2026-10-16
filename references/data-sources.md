@@ -44,6 +44,16 @@
   - 适合回补成本价、验证分红除权
   - 历史净值接口返回 JSON，注意单位与除权处理
 
+## 3b. 回测取数脚本 scripts/fetch_data.py（零依赖，可复跑）
+
+回测数据不走 iFinD，用仓内脚本直接抓公开数据，任何人都能在本机复现 `strategy-rules.md` 第 3 章的回测记录：
+
+- **基金累计净值**：天天基金 `pingzhongdata/{基金代码}.js` 的 `Data_ACWorthTrend`（毫秒时间戳 + 累计净值，停牌/未公布日可能为 null，脚本自动跳过）
+- **指数 PE 分位**：中证指数官网 `index-perf` 接口的 `peg` 字段（PE-TTM），**必须带 Referer**；脚本内部从 2010 年起多取数据，自算近 244 交易日严格排位分位（窗口有效值 <120 时输出 null），再按 `--start` 过滤
+- 用法：`python scripts/fetch_data.py --fund 110020 --index 000300 --nav-out nav.json --pe-out pe.json --start 2019-01-01`
+- 黄金/QDII 只取净值（无免费历史 PE），回测 pes=None，规则 1 的 PE 分支不生效
+- 该脚本仅人工执行，**CI 不做联网冒烟**（接口变动会让 CI 脆弱）；解析逻辑由 `tests/test_fetch_data.py` 用合成响应离线覆盖
+
 ## 通用取数纪律
 
 1. **标注来源与时效**：日报中每个关键数值标注来源与数据日期
