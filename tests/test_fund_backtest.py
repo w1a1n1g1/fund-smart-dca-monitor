@@ -162,6 +162,23 @@ class TestExitGuard(unittest.TestCase):
         with self.assertRaises(SystemExit):
             fb.main(["--demo", "--exit-cooldown", "-1"])
 
+    def test_budget_rollover_deploys_more_ammo_in_downturn(self):
+        # 低估值持续下跌：高倍补仓档（最高20x）单笔超月预算，
+        # 默认模式（当月作废）投不出；滚存模式累积弹药后可执行 → 投入更多
+        # 日期跨月（每月21个交易日），否则月预算永不滚存
+        navs = [{"date": "2020-%02d-%02d" % (i // 21 + 1, i % 21 + 1),
+                 "nav": round(1.0 * (0.998 ** i), 6)} for i in range(294)]
+        pes = [15.0] * 294
+        default = fb.simulate(navs, pes, budget_rollover=False)["invested_units"]
+        rollover = fb.simulate(navs, pes, budget_rollover=True)["invested_units"]
+        self.assertGreater(rollover, default)
+
+    def test_budget_rollover_cli_flag(self):
+        out = fb.main(["--demo", "--budget-rollover"])
+        self.assertTrue(out["assumptions"]["budget_rollover"])
+        out2 = fb.main(["--demo"])
+        self.assertFalse(out2["assumptions"]["budget_rollover"])
+
 
 if __name__ == "__main__":
     unittest.main()

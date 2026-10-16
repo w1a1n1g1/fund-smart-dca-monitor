@@ -130,13 +130,15 @@ def rsi_confirmed(rsi_list, i, threshold=30.0, confirm=0):
 def simulate(navs, pes=None, monthly_units=100.0, asset_type="a",
              dd_thr=8.0, trailing_thr=8.0, rsi_list=None,
              fee_buy=0.0015, fee_sell=0.005, dca_interval=5, rsi_confirm=0,
-             exit_cooldown=20):
+             exit_cooldown=20, budget_rollover=False):
     rules = ASSET_RULES[asset_type]
     daily_budget = monthly_units / float(DAYS_PER_MONTH)
     rsi_list = rsi_list or rsi6_series([r["nav"] for r in navs])
 
     shares = cash = invested = cost_basis = 0.0
-    month_key, month_spent = None, 0.0
+    # 月预算：budget_rollover=False 时当月未投出即作废（保守口径，历史结果可比）；
+    # True 时未投出的弹药滚入下月（对应真实"全局弹药库"：高位长期空仓→低位积累更多弹药）
+    month_key, month_spent, month_cap = None, 0.0, monthly_units
     peak_all = None
     last_dca_idx = -10 ** 9  # 上次补仓档触发日（最小补仓间隔用）
     last_exit_idx = -10 ** 9  # 上次止盈触发日（冷却期：防止循环触发抽血）
@@ -148,6 +150,10 @@ def simulate(navs, pes=None, monthly_units=100.0, asset_type="a",
         nav, date = rec["nav"], rec["date"]
         mk = date[:7]
         if mk != month_key:
+            if budget_rollover and month_key is not None:
+                month_cap = monthly_units + max(0.0, month_cap - month_spent)
+            else:
+                month_cap = monthly_units
             month_key, month_spent = mk, 0.0
 
         # 指标：MA250（样本>=20 日起用可得均值）
@@ -176,7 +182,7 @@ def simulate(navs, pes=None, monthly_units=100.0, asset_type="a",
             if tier > 0:
                 buy_units += daily_budget * tier
                 dca_hit = True
-        if buy_units > 0 and month_spent + buy_units <= monthly_units:
+        if buy_units > 0 and month_spent + buy_units <= month_cap:
             new_sh = buy_units * (1 - fee_buy) / nav  # 申购费
             cost_basis = (cost_basis * shares + nav * new_sh) / (shares + new_sh)
             shares += new_sh
@@ -312,6 +318,8 @@ def main(argv=None):
     p.add_argument("--exit-cooldown", type=int, default=20, dest="exit_cooldown",
                    help="止盈冷却期（交易日，默认 20）：任一止盈触发后该窗口内不再触发，"
                         "对应真实体系'分批锁利'而非逐日循环卖出；0=不限制")
+    p.add_argument("--budget-rollover", action="store_true", dest="budget_rollover",
+                   help="月预算滚存：当月未投出弹药滚入下月（默认关闭=当月作废，与历史回测可比）")
     p.add_argument("--demo", action="store_true", help="使用内置合成数据演示")
     args = p.parse_args(argv)
 
@@ -339,14 +347,15 @@ def main(argv=None):
                       dd_thr=args.dd_thr, trailing_thr=args.trailing_thr,
                       fee_buy=args.fee_buy, fee_sell=args.fee_sell,
                       dca_interval=args.dca_interval, rsi_confirm=args.rsi_confirm,
-                      exit_cooldown=args.exit_cooldown)
+                      exit_cooldown=args.exit_cooldown, budget_rollover=args.budget_rollover)
     return {
         "command": "backtest",
         "period": {"start": navs[0]["date"], "end": navs[-1]["date"], "days": len(navs)},
         "asset_type": args.asset_type,
         "assumptions": {"fee_buy": args.fee_buy, "fee_sell": args.fee_sell,
                         "dca_interval_days": args.dca_interval, "rsi_confirm": args.rsi_confirm,
-                        "exit_cooldown_days": args.exit_cooldown},
+                        "exit_cooldown_days": args.exit_cooldown,
+                        "budget_rollover": args.budget_rollover},
         "strategy": result,
         "benchmark_uniform_dca": bench_uniform_dca(navs, args.monthly_units, args.fee_buy),
         "benchmark_lump_sum": bench_lsi(navs, args.monthly_units, args.fee_buy),
