@@ -197,25 +197,37 @@ def cmd_exit_check(args) -> dict:
             rules["gain1"], gain,
             "已触发" if gain > rules["gain1"] else ("接近" if gain > rules["gain1"] - 5 else "正常"))
 
-    # 规则 2：回撤止盈（浮盈>10% 后，距20日高点回撤>8% 卖一半）——任何基金
+    # ATR 自适应阈值（可选）：提供 --atr-pct 时，回撤阈值 = max(6, min(12, 2×ATR%))
+    atr = getattr(args, "atr_pct", None)
+    dd_thr = 8.0
+    atr_note = ""
+    if atr is not None:
+        if not (0 < atr <= 30):
+            raise ValueError("atr_pct 应在 0-30 之间（ATR/价格×100）")
+        dd_thr = max(6.0, min(12.0, 2.0 * atr))
+        atr_note = f"阈值=2×ATR 自适应（ATR={atr}%）"
+
+    # 规则 2：回撤止盈（浮盈>10% 后，距20日高点回撤超阈值 卖一半）——任何基金
     if args.dd_20d is not None:
         active = gain > 10
-        trig = active and args.dd_20d > 8
+        trig = active and args.dd_20d > dd_thr
         if trig:
-            actions.append("规则2：浮盈>10% 且 距20日高点回撤>8% → 卖出 1/2")
+            actions.append(f"规则2：浮盈>10% 且 距20日高点回撤>{dd_thr}% → 卖出 1/2")
         lines["rule2_drawdown_20d"] = _line(
-            8, args.dd_20d,
-            "已触发" if trig else ("未激活（浮盈需>10%）" if not active else ("接近" if args.dd_20d > 6 else "正常")))
+            dd_thr, args.dd_20d,
+            "已触发" if trig else ("未激活（浮盈需>10%）" if not active else ("接近" if args.dd_20d > dd_thr - 2 else "正常")),
+            atr_note)
 
-    # 规则 3：移动止盈（浮盈>15% 后，距最高点回撤>8% 再卖1/3）
+    # 规则 3：移动止盈（浮盈>15% 后，距最高点回撤超阈值 再卖1/3）
     if args.dd_high is not None:
         active = gain > 15
-        trig = active and args.dd_high > 8
+        trig = active and args.dd_high > dd_thr
         if trig:
-            actions.append("规则3：浮盈>15% 且 距最高点回撤>8% → 卖出 1/3")
+            actions.append(f"规则3：浮盈>15% 且 距最高点回撤>{dd_thr}% → 卖出 1/3")
         lines["rule3_trailing"] = _line(
-            8, args.dd_high,
-            "已触发" if trig else ("未激活（浮盈需>15%）" if not active else ("接近" if args.dd_high > 6 else "正常")))
+            dd_thr, args.dd_high,
+            "已触发" if trig else ("未激活（浮盈需>15%）" if not active else ("接近" if args.dd_high > dd_thr - 2 else "正常")),
+            atr_note)
 
     return {
         "command": "exit-check",
@@ -309,6 +321,8 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--rsi6", type=float, default=None, help="RSI6 值（黄金止盈线用，0-100）")
     e.add_argument("--ma-deviation", type=float, default=None, dest="ma_deviation",
                    help="现价偏离250日均线百分比，正为上方（黄金止盈线用）")
+    e.add_argument("--atr-pct", type=float, default=None, dest="atr_pct",
+                   help="近14日ATR/价格×100（可选）；提供时回撤阈值=2×ATR 并钳位在 6-12 之间")
 
     p_ = sub.add_parser("peer-check", help="盘友圈公开实盘一致性分析")
     p_.add_argument("--action", required=True, choices=["buy", "sell", "hold"], help="发帖人操作：buy/sell/hold")

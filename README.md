@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
 ![No Dependencies](https://img.shields.io/badge/依赖-零-orange.svg)
-![Tests](https://img.shields.io/badge/tests-32%20passed-brightgreen.svg)
+![Tests](https://img.shields.io/badge/tests-45%20passed-brightgreen.svg)
 
 ## 这是什么
 
@@ -102,8 +102,11 @@ python scripts/fund_strategy.py signal --pe-percentile 34.8 --price 1.1138 --ma2
 # 补仓档位：浮亏 8.3%，日均额定额 40 元
 python scripts/fund_strategy.py dca --drawdown 8.3 --daily-budget 40
 
-# 止盈体检：PE分位 87%，浮盈 21%，距20日高点回撤 9%
+# 止盈体检：PE分位 87%，浮盈 21%，距20日高点回撤 9%（可选 --atr-pct 启用 ATR 自适应阈值）
 python scripts/fund_strategy.py exit-check --pe-percentile 87 --gain 21 --dd-20d 9
+
+# 参数回测：策略 vs 均匀定投 vs 一次性投入（零依赖，输入天天基金历史净值 + PE分位序列）
+python scripts/fund_backtest.py --nav-file nav.json --pe-file pe.json --sweep dd
 ```
 
 所有命令默认输出 JSON（便于接入自动化流水线与 AI 智能体解析）。`signal` 示例输出：
@@ -162,9 +165,11 @@ fund-smart-dca-monitor/
 │   ├── daily-report.md          # 四段式监控日报模板
 │   └── community-analysis.md    # 盘友圈公开实盘分析框架
 ├── scripts/
-│   └── fund_strategy.py         # 信号/补仓/止盈/实盘诊断计算器（零依赖）
+│   ├── fund_strategy.py         # 信号/补仓/止盈/实盘诊断计算器（零依赖）
+│   └── fund_backtest.py         # 三因子策略轻量回测（零依赖，含参数扫描）
 ├── tests/
-│   └── test_fund_strategy.py    # 32 个单元测试（unittest，零依赖）
+│   ├── test_fund_strategy.py    # 单元测试（unittest，零依赖）
+│   └── test_fund_backtest.py    # 回测与 ATR 自适应测试
 ├── docs/
 │   └── promo.md                 # 盘友圈分享文案
 ├── .github/

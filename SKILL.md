@@ -70,6 +70,19 @@ description: 基金智能定投监控技能。按估值分位×均线偏离×RSI
 - 蛋卷接口需 `curl -sL` 跟随 301
 - iFinD 公告搜索：泛查只命中股票分红，须带基金名+状态词
 
+## 参数回测（可选流程）
+
+需要验证三因子与止盈参数时，调用 [scripts/fund_backtest.py](scripts/fund_backtest.py)（零依赖）：
+
+```bash
+python scripts/fund_backtest.py --nav-file nav.json --pe-file pe.json   # 策略 vs 均匀DCA vs 一次性投入
+python scripts/fund_backtest.py --nav-file nav.json --pe-file pe.json --sweep dd   # 回撤阈值 5-12 扫描
+```
+
+- 输入：天天基金历史净值 JSON + 对应指数 PE 分位序列（均支持字典或数组格式）
+- 输出：年化收益 / Sharpe / 最大回撤 / 胜率，全部为百分比与倍数，不给金额建议
+- 纪律：单一序列回测存在过拟合风险，结论须多指数交叉验证后才可写入规则
+
 ## 完整规则
 
 详见 [references/strategy-rules.md](references/strategy-rules.md)。
