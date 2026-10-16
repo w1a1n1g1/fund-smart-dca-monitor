@@ -294,6 +294,106 @@ def cmd_peer_check(args) -> dict:
     }
 
 
+def cmd_poster_track(args) -> dict:
+    """发帖人长期纪律跟踪：对公开操作时间线逐条对照三因子信号，输出纪律评分与趋势。
+
+    输入为本地 JSON 文件（不联网、不抓取、不持久化他人身份）：
+    {"poster": "匿名代号", "records": [
+      {"date": "2026-09-01", "action": "buy",
+       "price": 3800, "ma250": 4100, "pe_percentile": 20, "rsi6": 35},
+      {"date": "2026-10-10", "action": "sell", "cost": 3900,
+       "price": 4050, "ma250": 4100, "pe_percentile": 30, "rsi6": 45}
+    ]}
+    """
+    with open(args.file, "r", encoding="utf-8") as fh:
+        payload = json.load(fh)
+    records = payload.get("records")
+    if not isinstance(records, list) or not records:
+        raise ValueError("records 必须是非空数组")
+
+    weights = {"aligned": 1.0, "partial": 0.5, "against": 0.0}
+    counts = {"aligned": 0, "partial": 0, "against": 0, "hold": 0}
+    flag_counts = {}
+    weighted_sum = graded_n = 0
+    timeline = []
+
+    for idx, rec in enumerate(records):
+        action = rec.get("action")
+        if action not in ("buy", "sell", "hold"):
+            raise ValueError("第 %d 条 action 必须是 buy/sell/hold" % (idx + 1))
+        price = float(rec.get("price", 0))
+        ma250 = float(rec.get("ma250", 0))
+        if price <= 0 or ma250 <= 0:
+            raise ValueError("第 %d 条缺少正数 price/ma250" % (idx + 1))
+        ns = Namespace(
+            action=action,
+            cost=float(rec.get("cost", price)) or price,
+            price=price,
+            pe_percentile=float(rec.get("pe_percentile", 50)),
+            ma250=ma250,
+            rsi6=float(rec.get("rsi6", 50)),
+            dd_20d=rec.get("dd_20d"),
+            dd_high=rec.get("dd_high"),
+        )
+        check = cmd_peer_check(ns)
+        sig = check["current_signal"]
+        verdict = check["verdict"]
+
+        if action == "hold":
+            category = "hold"
+        elif action == "buy":
+            category = "aligned" if sig >= 1.0 else ("partial" if sig > 0 else "against")
+        else:  # sell
+            if check["peer_gain_pct"] < 0:
+                category = "against"
+            elif "与止盈纪律一致" in verdict:
+                category = "aligned"
+            else:
+                category = "partial"
+
+        if category != "hold":
+            weighted_sum += weights[category]
+            graded_n += 1
+        counts[category] += 1
+        for fl in check["risk_flags"]:
+            flag_counts[fl] = flag_counts.get(fl, 0) + 1
+
+        timeline.append({
+            "date": rec.get("date", "#%d" % (idx + 1)),
+            "action": action,
+            "signal": sig,
+            "category": category,
+            "gain_pct": check["peer_gain_pct"],
+            "risk_flags": check["risk_flags"],
+        })
+
+    # 基础分=合规操作占比×100（hold 不入分母）；每条风险标签 -5 分，下限 0
+    base_score = round(100.0 * weighted_sum / graded_n, 1) if graded_n else None
+    score_penalty = 5 * sum(flag_counts.values())
+    score = round(max(0.0, (base_score or 0.0) - score_penalty), 1) if graded_n else None
+
+    out = {
+        "command": "poster-track",
+        "poster_tag": payload.get("poster", "未命名代号"),
+        "graded_actions": graded_n,
+        "hold_actions": counts["hold"],
+        "counts": {k: counts[k] for k in ("aligned", "partial", "against")},
+        "discipline_score": score,
+        "risk_flag_counts": flag_counts,
+        "timeline": timeline,
+        "note": "仅基于用户自行录入的公开信息做纪律对照，不联网、不抓取、不存储他人可识别信息；"
+                "样本量小或晒单选择偏差大时分数不具统计意义",
+    }
+    if args.prev_score is not None:
+        if score is None:
+            delta = None
+        else:
+            delta = round(score - args.prev_score, 1)
+        out["previous_score"] = args.prev_score
+        out["score_delta"] = delta
+    return out
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="fund_strategy.py",
@@ -334,6 +434,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_.add_argument("--dd-20d", type=float, default=None, dest="dd_20d", help="距20日高点回撤百分比（可选）")
     p_.add_argument("--dd-high", type=float, default=None, dest="dd_high", help="距历史最高点回撤百分比（可选）")
 
+    t = sub.add_parser("poster-track", help="发帖人长期纪律跟踪（读本地公开操作时间线 JSON）")
+    t.add_argument("--file", required=True, help="时间线 JSON 文件路径（格式见 references/community-analysis.md）")
+    t.add_argument("--prev-score", type=float, default=None, dest="prev_score",
+                   help="上次纪律评分（0-100），提供时输出分数变化趋势")
+
     return p
 
 
@@ -347,6 +452,8 @@ def main(argv=None) -> int:
             result = cmd_dca(args)
         elif args.command == "peer-check":
             result = cmd_peer_check(args)
+        elif args.command == "poster-track":
+            result = cmd_poster_track(args)
         else:
             result = cmd_exit_check(args)
     except ValueError as exc:

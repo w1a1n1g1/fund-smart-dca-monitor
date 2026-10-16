@@ -212,5 +212,75 @@ class TestPeerCheck(unittest.TestCase):
                                         dd_20d=None, dd_high=None))
 
 
+class TestPosterTrack(unittest.TestCase):
+    def _args(self, records):
+        import json
+        import tempfile
+        fh = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
+        json.dump({"poster": "代号X", "records": records}, fh, ensure_ascii=False)
+        fh.close()
+        self.addCleanup(os.unlink, fh.name)
+        return Namespace(file=fh.name, prev_score=None)
+
+    def test_mixed_timeline_scoring(self):
+        # 顺势买（低PE+年线下）=aligned；高PE追买=against；hold 不入分母
+        args = self._args([
+            {"date": "2026-09-01", "action": "buy", "price": 0.90, "ma250": 1.0,
+             "pe_percentile": 15, "rsi6": 25},
+            {"date": "2026-09-20", "action": "hold", "price": 0.95, "ma250": 1.0},
+            {"date": "2026-10-01", "action": "buy", "price": 1.10, "ma250": 1.0,
+             "pe_percentile": 90, "rsi6": 60},
+        ])
+        out = fs.cmd_poster_track(args)
+        self.assertEqual(out["graded_actions"], 2)
+        self.assertEqual(out["hold_actions"], 1)
+        self.assertEqual(out["counts"], {"aligned": 1, "partial": 0, "against": 1})
+        # 基础分 50（1/2 合规），该笔同时命中"年线上方追买"+"高估值买入"2 个标签 -10
+        self.assertEqual(out["discipline_score"], 40.0)
+        self.assertTrue(any("高估值买入" in f for f in out["risk_flag_counts"]))
+
+    def test_sell_aligned_and_cut_loss(self):
+        # 浮盈 22% 触发 A 股第二档止盈=aligned；浮亏卖=against
+        args = self._args([
+            {"date": "2026-09-01", "action": "sell", "cost": 1.0, "price": 1.22,
+             "ma250": 1.0, "pe_percentile": 30, "rsi6": 50},
+            {"date": "2026-10-01", "action": "sell", "cost": 1.1, "price": 1.0,
+             "ma250": 1.0, "pe_percentile": 30, "rsi6": 50},
+        ])
+        out = fs.cmd_poster_track(args)
+        self.assertEqual(out["counts"]["aligned"], 1)
+        self.assertEqual(out["counts"]["against"], 1)
+        self.assertEqual(out["discipline_score"], 50.0)
+
+    def test_prev_score_delta(self):
+        args = self._args([
+            {"date": "2026-09-01", "action": "buy", "price": 0.90, "ma250": 1.0,
+             "pe_percentile": 15, "rsi6": 25},
+        ])
+        args.prev_score = 60.0
+        out = fs.cmd_poster_track(args)
+        self.assertEqual(out["score_delta"], round(out["discipline_score"] - 60.0, 1))
+
+    def test_empty_records_rejected(self):
+        with self.assertRaises(ValueError):
+            fs.cmd_poster_track(self._args([]))
+
+    def test_cli_end_to_end(self):
+        import io
+        import contextlib
+        import json
+        import tempfile
+        fh = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
+        json.dump({"records": [{"action": "buy", "price": 0.9, "ma250": 1.0,
+                                "pe_percentile": 15, "rsi6": 25}]}, fh)
+        fh.close()
+        self.addCleanup(os.unlink, fh.name)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = fs.main(["poster-track", "--file", fh.name])
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(buf.getvalue())["counts"]["aligned"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
